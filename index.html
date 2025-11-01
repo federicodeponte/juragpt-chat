@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JuraGPT - Legal RAG Chat</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f5f5;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        .header {
+            background: #2563eb;
+            color: white;
+            padding: 1rem 2rem;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .header h1 { font-size: 1.5rem; font-weight: 600; }
+        .header p { font-size: 0.875rem; opacity: 0.9; margin-top: 0.25rem; }
+        .chat-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            max-width: 1200px;
+            width: 100%;
+            margin: 0 auto;
+            background: white;
+            box-shadow: 0 0 20px rgba(0,0,0,0.1);
+        }
+        .messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 2rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+        .message {
+            display: flex;
+            gap: 1rem;
+            max-width: 80%;
+        }
+        .message.user { align-self: flex-end; flex-direction: row-reverse; }
+        .message.assistant { align-self: flex-start; }
+        .message-content {
+            background: #f3f4f6;
+            padding: 1rem;
+            border-radius: 1rem;
+            line-height: 1.5;
+        }
+        .message.user .message-content {
+            background: #2563eb;
+            color: white;
+        }
+        .verification {
+            margin-top: 0.75rem;
+            padding: 0.75rem;
+            background: rgba(0,0,0,0.05);
+            border-radius: 0.5rem;
+            font-size: 0.875rem;
+        }
+        .verification-score {
+            font-weight: 600;
+            color: #059669;
+        }
+        .sources {
+            margin-top: 0.75rem;
+            padding: 0.75rem;
+            background: rgba(0,0,0,0.05);
+            border-radius: 0.5rem;
+            font-size: 0.875rem;
+        }
+        .source-item {
+            margin-top: 0.5rem;
+            padding: 0.5rem;
+            background: white;
+            border-radius: 0.25rem;
+            border-left: 3px solid #2563eb;
+        }
+        .input-area {
+            padding: 1.5rem;
+            border-top: 1px solid #e5e7eb;
+            background: white;
+        }
+        .input-form {
+            display: flex;
+            gap: 1rem;
+            align-items: flex-end;
+        }
+        .input-group {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+        label {
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: #374151;
+        }
+        textarea {
+            padding: 0.75rem;
+            border: 2px solid #e5e7eb;
+            border-radius: 0.5rem;
+            font-size: 1rem;
+            font-family: inherit;
+            resize: none;
+            min-height: 60px;
+        }
+        textarea:focus {
+            outline: none;
+            border-color: #2563eb;
+        }
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-top: 0.5rem;
+        }
+        button {
+            padding: 0.75rem 2rem;
+            background: #2563eb;
+            color: white;
+            border: none;
+            border-radius: 0.5rem;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+            align-self: flex-end;
+        }
+        button:hover:not(:disabled) { background: #1d4ed8; }
+        button:disabled {
+            background: #9ca3af;
+            cursor: not-allowed;
+        }
+        .loading {
+            display: inline-block;
+            margin-left: 0.5rem;
+        }
+        .loading::after {
+            content: '';
+            animation: dots 1.5s steps(4, end) infinite;
+        }
+        @keyframes dots {
+            0%, 20% { content: ''; }
+            40% { content: '.'; }
+            60% { content: '..'; }
+            80%, 100% { content: '...'; }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>JuraGPT Legal RAG</h1>
+        <p>325,456 German & EU law vectors • Hallucination detection enabled</p>
+    </div>
+
+    <div class="chat-container">
+        <div class="messages" id="messages">
+            <div class="message assistant">
+                <div class="message-content">
+                    Welcome to JuraGPT! Ask me any question about German or EU law. I'll search through 325,456+ legal sources and verify my answers for accuracy.
+                </div>
+            </div>
+        </div>
+
+        <div class="input-area">
+            <form class="input-form" id="chatForm">
+                <div class="input-group">
+                    <label for="query">Your legal question</label>
+                    <textarea
+                        id="query"
+                        name="query"
+                        placeholder="e.g., Was ist das Kündigungsschutzgesetz?"
+                        required
+                    ></textarea>
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="verify" name="verify" checked>
+                        <label for="verify" style="font-weight: normal;">Enable hallucination detection (slower, more accurate)</label>
+                    </div>
+                </div>
+                <button type="submit" id="submitBtn">Send</button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = 'http://34.78.185.56/api/orchestrator/query';
+        const form = document.getElementById('chatForm');
+        const messages = document.getElementById('messages');
+        const submitBtn = document.getElementById('submitBtn');
+        const queryInput = document.getElementById('query');
+        const verifyCheckbox = document.getElementById('verify');
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const query = queryInput.value.trim();
+            if (!query) return;
+
+            // Add user message
+            addMessage('user', query);
+            queryInput.value = '';
+
+            // Disable form
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = 'Processing<span class="loading"></span>';
+
+            try {
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        query: query,
+                        top_k: 3,
+                        verify_answer: verifyCheckbox.checked
+                    })
+                });
+
+                if (!response.ok) throw new Error(`API error: ${response.status}`);
+
+                const data = await response.json();
+
+                // Format response
+                let content = `Found ${data.sources.length} relevant legal sources.`;
+
+                // Add sources
+                if (data.sources.length > 0) {
+                    content += '<div class="sources"><strong>📚 Legal Sources:</strong>';
+                    data.sources.forEach((source, i) => {
+                        content += `<div class="source-item">
+                            <strong>${i + 1}. ${source.title || 'Legal Source'}</strong><br>
+                            <small>Relevance: ${(source.score * 100).toFixed(1)}%</small><br>
+                            ${source.text.substring(0, 200)}...
+                        </div>`;
+                    });
+                    content += '</div>';
+                }
+
+                // Add verification if enabled
+                if (data.verification && data.verification.confidence) {
+                    const conf = data.verification.confidence;
+                    content += `<div class="verification">
+                        <strong>🔍 Verification:</strong><br>
+                        Status: <span class="verification-score">${conf.trust_label}</span><br>
+                        Confidence: <span class="verification-score">${(conf.score * 100).toFixed(1)}%</span><br>
+                        Semantic similarity: ${(conf.components.semantic_similarity * 100).toFixed(1)}%<br>
+                        Retrieval quality: ${(conf.components.retrieval_quality * 100).toFixed(1)}%
+                    </div>`;
+                }
+
+                addMessage('assistant', content);
+
+            } catch (error) {
+                console.error('Error:', error);
+                addMessage('assistant', `❌ Error: ${error.message}. Please check if the API is running.`);
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Send';
+            }
+        });
+
+        function addMessage(role, content) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${role}`;
+            messageDiv.innerHTML = `<div class="message-content">${content}</div>`;
+            messages.appendChild(messageDiv);
+            messages.scrollTop = messages.scrollHeight;
+        }
+
+        // Auto-resize textarea
+        queryInput.addEventListener('input', function() {
+            this.style.height = 'auto';
+            this.style.height = Math.min(this.scrollHeight, 200) + 'px';
+        });
+    </script>
+</body>
+</html>
