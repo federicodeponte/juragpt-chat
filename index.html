@@ -152,6 +152,58 @@
             60% { content: '..'; }
             80%, 100% { content: '...'; }
         }
+        .file-upload-area {
+            margin-top: 0.5rem;
+        }
+        .file-preview {
+            display: none;
+            padding: 0.5rem;
+            background: rgba(0, 0, 0, 0.05);
+            border-radius: 0.375rem;
+            margin-bottom: 0.5rem;
+            font-size: 0.875rem;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .file-preview.active {
+            display: flex;
+        }
+        .file-preview-name {
+            flex: 1;
+            color: #374151;
+        }
+        .file-preview-remove {
+            cursor: pointer;
+            color: #ef4444;
+            font-weight: 500;
+            font-size: 0.75rem;
+        }
+        .file-preview-remove:hover {
+            color: #dc2626;
+        }
+        #fileInput {
+            display: none;
+        }
+        .upload-button {
+            padding: 0.5rem;
+            background: #e5e7eb;
+            border: none;
+            border-radius: 0.375rem;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+            font-size: 0.875rem;
+            color: #374151;
+            transition: background 0.2s;
+        }
+        .upload-button:hover {
+            background: #d1d5db;
+        }
+        .upload-button svg {
+            width: 16px;
+            height: 16px;
+        }
     </style>
 </head>
 <body>
@@ -173,15 +225,29 @@
             <form class="input-form" id="chatForm">
                 <div class="input-group">
                     <label for="query">Your legal question</label>
+                    <div class="file-preview" id="filePreview">
+                        <span class="file-preview-name" id="fileName"></span>
+                        <span class="file-preview-remove" id="removeFile">Remove</span>
+                    </div>
                     <textarea
                         id="query"
                         name="query"
                         placeholder="e.g., Was ist das Kündigungsschutzgesetz?"
-                        required
                     ></textarea>
                     <div class="checkbox-group">
                         <input type="checkbox" id="verify" name="verify" checked>
                         <label for="verify" style="font-weight: normal;">Enable hallucination detection (slower, more accurate)</label>
+                    </div>
+                    <div class="file-upload-area">
+                        <input type="file" id="fileInput" accept=".pdf,.doc,.docx,.txt">
+                        <label for="fileInput" class="upload-button">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                <polyline points="17 8 12 3 7 8"></polyline>
+                                <line x1="12" y1="3" x2="12" y2="15"></line>
+                            </svg>
+                            Upload Document
+                        </label>
                     </div>
                 </div>
                 <button type="submit" id="submitBtn">Send</button>
@@ -191,20 +257,48 @@
 
     <script>
         const API_URL = '/api/query';
+        const UPLOAD_API_URL = '/api/upload';
         const form = document.getElementById('chatForm');
         const messages = document.getElementById('messages');
         const submitBtn = document.getElementById('submitBtn');
         const queryInput = document.getElementById('query');
         const verifyCheckbox = document.getElementById('verify');
+        const fileInput = document.getElementById('fileInput');
+        const filePreview = document.getElementById('filePreview');
+        const fileName = document.getElementById('fileName');
+        const removeFileBtn = document.getElementById('removeFile');
+
+        let selectedFile = null;
+
+        // File handling functions
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                selectedFile = file;
+                fileName.textContent = file.name;
+                filePreview.classList.add('active');
+            }
+        });
+
+        removeFileBtn.addEventListener('click', () => {
+            selectedFile = null;
+            fileInput.value = '';
+            filePreview.classList.remove('active');
+        });
 
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
 
             const query = queryInput.value.trim();
-            if (!query) return;
+            if (!query && !selectedFile) return;
 
             // Add user message
-            addMessage('user', query);
+            if (query) {
+                addMessage('user', query);
+            }
+            if (selectedFile) {
+                addMessage('user', `📎 ${selectedFile.name}`);
+            }
             queryInput.value = '';
 
             // Disable form
@@ -212,49 +306,83 @@
             submitBtn.innerHTML = 'Processing<span class="loading"></span>';
 
             try {
-                const response = await fetch(API_URL, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        query: query,
-                        top_k: 3,
-                        verify_answer: verifyCheckbox.checked
-                    })
-                });
+                let response;
 
-                if (!response.ok) throw new Error(`API error: ${response.status}`);
+                if (selectedFile) {
+                    // Handle file upload
+                    const formData = new FormData();
+                    formData.append('file', selectedFile);
+                    if (query) {
+                        formData.append('query', query);
+                    }
 
-                const data = await response.json();
-
-                // Format response
-                let content = `Found ${data.sources.length} relevant legal sources.`;
-
-                // Add sources
-                if (data.sources.length > 0) {
-                    content += '<div class="sources"><strong>📚 Legal Sources:</strong>';
-                    data.sources.forEach((source, i) => {
-                        content += `<div class="source-item">
-                            <strong>${i + 1}. ${source.title || 'Legal Source'}</strong><br>
-                            <small>Relevance: ${(source.score * 100).toFixed(1)}%</small><br>
-                            ${source.text.substring(0, 200)}...
-                        </div>`;
+                    response = await fetch(UPLOAD_API_URL, {
+                        method: 'POST',
+                        body: formData
                     });
-                    content += '</div>';
-                }
 
-                // Add verification if enabled
-                if (data.verification && data.verification.confidence) {
-                    const conf = data.verification.confidence;
-                    content += `<div class="verification">
-                        <strong>🔍 Verification:</strong><br>
-                        Status: <span class="verification-score">${conf.trust_label}</span><br>
-                        Confidence: <span class="verification-score">${(conf.score * 100).toFixed(1)}%</span><br>
-                        Semantic similarity: ${(conf.components.semantic_similarity * 100).toFixed(1)}%<br>
-                        Retrieval quality: ${(conf.components.retrieval_quality * 100).toFixed(1)}%
-                    </div>`;
-                }
+                    if (!response.ok) throw new Error(`Upload failed: ${response.status}`);
 
-                addMessage('assistant', content);
+                    const data = await response.json();
+
+                    // Format upload response
+                    let content = `Document processed successfully!<br><br>`;
+                    if (data.answer) {
+                        content += data.answer;
+                    }
+                    addMessage('assistant', content);
+
+                    // Clear file selection
+                    selectedFile = null;
+                    fileInput.value = '';
+                    filePreview.classList.remove('active');
+
+                } else {
+                    // Handle regular query
+                    response = await fetch(API_URL, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            query: query,
+                            top_k: 3,
+                            verify_answer: verifyCheckbox.checked
+                        })
+                    });
+
+                    if (!response.ok) throw new Error(`API error: ${response.status}`);
+
+                    const data = await response.json();
+
+                    // Format response
+                    let content = `Found ${data.sources.length} relevant legal sources.`;
+
+                    // Add sources
+                    if (data.sources.length > 0) {
+                        content += '<div class="sources"><strong>📚 Legal Sources:</strong>';
+                        data.sources.forEach((source, i) => {
+                            content += `<div class="source-item">
+                                <strong>${i + 1}. ${source.title || 'Legal Source'}</strong><br>
+                                <small>Relevance: ${(source.score * 100).toFixed(1)}%</small><br>
+                                ${source.text.substring(0, 200)}...
+                            </div>`;
+                        });
+                        content += '</div>';
+                    }
+
+                    // Add verification if enabled
+                    if (data.verification && data.verification.confidence) {
+                        const conf = data.verification.confidence;
+                        content += `<div class="verification">
+                            <strong>🔍 Verification:</strong><br>
+                            Status: <span class="verification-score">${conf.trust_label}</span><br>
+                            Confidence: <span class="verification-score">${(conf.score * 100).toFixed(1)}%</span><br>
+                            Semantic similarity: ${(conf.components.semantic_similarity * 100).toFixed(1)}%<br>
+                            Retrieval quality: ${(conf.components.retrieval_quality * 100).toFixed(1)}%
+                        </div>`;
+                    }
+
+                    addMessage('assistant', content);
+                }
 
             } catch (error) {
                 console.error('Error:', error);
