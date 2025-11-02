@@ -14,7 +14,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const response = await fetch('http://34.78.185.56/api/orchestrator/query', {
+    const response = await fetch('https://regarding-tall-inquiry-java.trycloudflare.com/api/orchestrator/query', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
