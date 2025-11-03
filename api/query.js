@@ -13,7 +13,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const backendURL = 'https://regarding-tall-inquiry-java.trycloudflare.com/api/orchestrator/query';
+  const backendURL = 'http://34.78.185.56:8888/query';
 
   try {
     console.log('[Vercel Proxy] Calling backend:', backendURL);
